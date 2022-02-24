@@ -1,7 +1,7 @@
 ---
-title: "SSAMM(Team 12)_KDD_Cup_2009_Result"
-author: Samuel Brinson, SeungJin Wang, Ali Kamali Mohammadzadeh, Maduka Balasooriya,
-  Matt Seraj
+title: "KDD_Cup_2009"
+author: Maduka Balasooriya, Samuel Brinson, SeungJin Wang, Ali Kamali Mohammadzadeh,Matt Seraj
+  
 output:
   html_document: default
   pdf_document: default
