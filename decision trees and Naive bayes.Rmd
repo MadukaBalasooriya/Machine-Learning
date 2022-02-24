@@ -1,0 +1,308 @@
+---
+title: "SSAMM(Team 12)_KDD_Cup_2009_Result"
+author: Samuel Brinson, SeungJin Wang, Ali Kamali Mohammadzadeh, Maduka Balasooriya,
+  Matt Seraj
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Step 1: Read CSV file and Combine churn. Data check
+```{r}
+raw <- read.csv("orange_small_train.data", sep="\t", header = T, na.strings = "")
+churn <- read.table("churn_label.txt", header = F)
+raw$churn <- ifelse(churn$V1 == 1, 1, 0)
+dim(raw)
+workdf <- raw
+n <- nrow(workdf)
+na_rate <- apply(workdf, 2, function(x) {sum(is.na(x))/n})
+sort(na_rate)
+hist(na_rate, breaks = 20)
+data_type <- sapply(workdf, class)
+# We realized that there were a large amount of "na rate" less the 0.2, so we tried to divied into some groups. 
+```
+
+## Step 2: Data Cleasing 
+### Create data frame with null rate and type of VAR
+### Null rate is divided into three groups: Low, Medium and High
+```{r}
+na_by_type <- data.frame(na_rate, data_type)
+#head(na_by_type)
+boxplot(na_rate ~ data_type, data = na_by_type)
+table(na_by_type$data_type)
+na_by_type$na_rate_group <- ifelse(na_by_type$na_rate > 0.8, 'high', ifelse(na_by_type$na_rate < 0.2, 'low', 'med'))
+table(na_by_type[, c('data_type','na_rate_group')])
+
+low_na_factor_vars <- rownames(na_by_type[which(na_by_type$data_type == 'factor' & na_by_type$na_rate_group == 'low'),])
+#low_na_factor_vars
+nlevels(workdf[, "Var192"]) #factor var which has low na rate
+LF_levels <- sapply(workdf[, low_na_factor_vars], nlevels)
+hist(LF_levels) # find how many factor levels
+
+factors_vars_with_too_many_levels <- names(LF_levels[which(LF_levels > 100)])
+hist(LF_levels[which(LF_levels <= 100)])
+
+low_na_numeric_vars <- rownames(na_by_type[which(na_by_type$data_type == 'numeric' & na_by_type$na_rate_group == 'low'),])
+#low_na_numeric_vars 
+
+low_na_integer_vars <- rownames(na_by_type[which(na_by_type$data_type == 'integer' & na_by_type$na_rate_group == 'low'),])
+
+#pdf("hist_numeric_vars.pdf")
+#for (var_name in c(low_na_numeric_vars, low_na_integer_vars)){
+  #hist(workdf[,var_name], xlab = var_name, main="Histogram of sample data")
+#}
+#dev.off()
+#length(unique(workdf[,"Var143"]))
+
+a <- sapply(workdf[, low_na_integer_vars], function(x){length(unique(x))})
+
+# Change integer variables with fewer than 10 unique values to factor variables
+integer_to_factor_vars <- names(a[which(a <= 10)])
+workdf[, integer_to_factor_vars] <- data.frame(apply(workdf[, integer_to_factor_vars], 2, as.factor))
+sapply(workdf[, low_na_integer_vars], class)
+
+# Change integer variables with more than 10 unique values to numeric variables
+integer_to_numeric_vars <- names(a[which(a>10)])
+workdf[,integer_to_numeric_vars] <- data.frame(apply(workdf[, integer_to_numeric_vars], 2, as.numeric))
+sapply(workdf[, low_na_integer_vars], class)
+
+# All low NA numeric variables now:
+all_low_na_numeric_vars <- c(low_na_numeric_vars, integer_to_numeric_vars)
+
+selected_factor_vars <- setdiff(low_na_factor_vars, factors_vars_with_too_many_levels)
+selected_factor_vars <- c(selected_factor_vars, integer_to_factor_vars)#low na and low levels
+length(selected_factor_vars)
+
+sel_factor_levels <- sapply(workdf[,selected_factor_vars], nlevels)
+
+#pdf("level_freq_factor_vars.pdf")
+#for (var_name in selected_factor_vars){
+  #plot(table(workdf[,var_name]), ylab = "Count in sample data", xlab = paste("Levels for", var_name))
+#}
+#dev.off()
+
+# ToDo: combine or discard low-frequency levels in categorical variables
+# try for one case
+var_name <- "Var203"
+
+aname <- names(a[which(a > 0.01)])
+var_names <- c()
+level_names <- list()
+var_names[1] <- var_name
+level_names[[1]] <- aname
+length(level_names[[1]])
+
+# Do it again in batch: store variable name in var_names, store level names in level_names
+var_names <- c()
+level_names <- list()
+i = 1
+for(var_name in selected_factor_vars){
+  a <- prop.table(table(workdf[,var_name]))
+  aname <- names(a[which(a > 0.01)])
+  var_names[i] <- var_name
+  level_names[[i]] <- aname
+  i <- i + 1
+}
+
+# Create indicator variables: 1 if var = level, 0 otherwise
+workdf_b <- as.data.frame(workdf[, 'churn'])
+colnames(workdf_b) <- c("churn")
+
+for(i in 1:length(var_names)){
+  this_var_level_names <- level_names[[i]]
+  for(j in 1:length(this_var_level_names)){
+    this_level_name <- this_var_level_names[j]
+    workdf_b[, paste0(var_names[i], "_", this_level_name)] <- ifelse(workdf[, var_names[i]] == this_level_name, 1, 0)
+  }  
+}
+
+# The same process will be applied to test data before scoring, so var_names and level_names should be saved for future use
+# Impute NA and cap outlier values in numeric variables
+# all_low_na_numeric_vars
+
+#pdf("hist_all_low_na_numeric_vars.pdf")
+#for (var_name in all_low_na_numeric_vars){
+  #hist(workdf[,var_name], xlab = var_name, main="Histogram of sample data")
+#}
+#dev.off()
+
+sapply(workdf[, all_low_na_numeric_vars], min)
+numeric_vars_to_fill_0 <- setdiff(all_low_na_numeric_vars, c("Var57", "Var113", "Var73"))
+workdf_n <- workdf[,numeric_vars_to_fill_0]
+#dim(workdf_n)
+#head(workdf_n)
+workdf_n[is.na(workdf_n)] <- 0
+
+# Add back the non-NA columns
+workdf_n = cbind(workdf_n, workdf[, c("Var57", "Var113", "Var73")])
+sapply(workdf_n, min)
+
+#pdf("hist_all_low_na_numeric_vars_after_impute.pdf")
+#for (var_name in colnames(workdf_n)){
+  #hist(workdf_n[,var_name], xlab = var_name, main="Histogram of sample data")
+#}
+#dev.off()
+
+# Cap outlier values
+# try on one variable
+qtile <- quantile(workdf_n[, 'Var22'], c(0.01, 0.99))
+
+workdf_nc <- workdf_n
+#head(workdf_nc)
+qtile <- apply(workdf_n, 2, function(x){quantile(x, c(0.01, 0.99))})
+
+# Todo: cap outlier values. For each column in workdf_nc, if value is less than the 1% quartile, set it to 1% quartile value;
+# if value is greater than the 99% quartile, set it to 99% quartile value.
+LB <- qtile[1,]
+UB <- qtile[2,]
+
+#(workdf_nc[,"Var28"]<LB) 
+
+fun <- function(x){quantile<-quantile(x, c(0.01, 0.99))
+x[x< quantile[1]] <- quantile[1]
+x[x> quantile[2]] <- quantile[2]
+x}
+
+workdf_numeric <- apply(workdf_nc, 2, fun)
+#head(workdf_numeric)
+#summary(workdf_numeric)
+final_data <- data.frame(workdf_numeric, workdf_b)
+#head(final_data)
+dim(final_data)
+
+final_data[is.na(final_data)] <- 0
+#final_data
+write.csv(final_data, file = "FinalcleanData2.csv")
+
+# There were some outliers in numeric variable
+# in the histogram of lF_levels, we could see the most high frequencey in 0~20.
+```
+
+## Step 3: Final Data Set and test model(Logisitc) by randomly selected variables
+### Split into "Training Set" and "Validation Data"
+### Run Logistic Regression Model for randomly selected variables after data cleaning
+```{r}
+set.seed(2018)
+ind<-sample(2, nrow(final_data), replace=TRUE, prob =c(0.8, 0.2))
+trainset <- final_data[ind==1,]
+validset <- final_data[ind==2,]
+dim(trainset)
+dim(validset)
+#head(trainset)
+samp_col_idxs  <- sample(ncol(trainset), 10)
+samp_col_names <- colnames(trainset) [samp_col_idxs]
+samp_col_names
+
+MAS <- glm(churn ~ Var44_0 + Var204_X8zP + Var204_MBhA + Var204_xQ2A + Var35 + Var204_LqKm + Var206_lVqb + Var226_wX53 + Var221_zCkv + Var134 + Var193_2Knk1KF, data = trainset, family = "binomial")
+summary(MAS)
+glm.probs <- predict(MAS, newdata = validset, type ="response")
+df <- data.frame(score = glm.probs, true.class = validset[, 'churn'])
+library(pROC)
+#library(rpart)
+auc(df$score, df$true.class)
+```
+
+## Step 4: Test Models
+### Navie Bayses model, KNN model
+```{r}
+# split train and Validate datasets in to numeric and binary with churn column included
+TrainBinary <- trainset[, (dim(workdf_numeric)[2]+1):length(trainset)]
+dim(TrainBinary)
+TrainNumeric <- trainset[, 1:(dim(workdf_numeric)[2]+1)]#include churn
+dim(TrainNumeric)
+ValidBinary <- validset[, (dim(workdf_numeric)[2]+1):length(validset)]
+dim(ValidBinary)
+ValidNumeric <- validset[, 1:(dim(workdf_numeric)[2]+1)]#include churn
+dim(ValidNumeric)
+
+## Develop a Naive Bayes model for all the binary variables in the model
+library(e1071)
+library(class)
+library(ROSE)
+NB_allvar <- naiveBayes(churn.1 ~ ., data = TrainBinary)
+summary(NB_allvar)
+print(NB_allvar)
+probNB <- predict(NB_allvar, newdata = ValidBinary, type = "raw")
+head(probNB)
+NB.pred=rep(0, dim(ValidBinary)[1])
+NB.pred[probNB[,1] > 0.5] = 1
+table(NB.pred, ValidBinary$churn )
+mean(NB.pred == ValidBinary$churn )
+roc.curve(NB.pred, ValidBinary$churn)
+
+# Lets make a KNN model for numerical variables
+set.seed(2018)
+library(class)
+knn.pred = knn(TrainNumeric,ValidNumeric, TrainNumeric$churn, k=1)
+table(knn.pred, ValidNumeric$churn)
+mean(knn.pred == ValidNumeric$churn )
+roc.curve(knn.pred, ValidNumeric$churn)
+```
+
+## Step 5: Improving test Models
+### Finding important variables by Random Forest
+### Developing a Logistic model by the most important 10 variables
+### Developing a Naive Bayes model by the most important 7 binary variables
+```{r}
+# applying Random Forest
+library('Metrics')
+library('randomForest')
+library('ggplot2')
+library('ggthemes')
+library('dplyr')
+model_rf <- randomForest(churn ~ ., data = trainset)
+probs <- predict(model_rf, validset)
+pred = rep(0, dim(validset)[1])
+pred[probs > 0.5] = 1
+table(pred, validset$churn )
+x <- importance(model_rf, type=2)
+as.data.frame(x)
+dim(x)
+y <- x[order(x),decreasing=TRUE]
+y
+
+# Because we needed to improve those models, after running Random Forest, identified the best variables which described the churn
+# So, we decided 10 most important variables according to Gini index
+# They were Var7_0, Var113, Var205_sJzTlal, Var73, Var212_NhsEn4L, Var74, Var81, Var218_cJvF, Var57, Var28, Var6
+
+# Logistic model
+sampletrain <- data.frame(trainset$Var113, trainset$Var81, trainset$Var73, trainset$Var28, trainset$Var7_0, trainset$Var205_sJzTlal, trainset$Var212_NhsEn4L, trainset$Var57, trainset$Var218_cJvF, trainset$Var6, trainset$churn)
+names(sampletrain) <- c("Var113","Var81","Var73","Var28", "Var7_0","Var205_sJzTlal", "Var212_NhsEn4L","Var57","Var218_cJvF","Var6", "churn")
+samplevalid<-data.frame(validset$Var113, validset$Var81, validset$Var73, validset$Var28, validset$Var7_0, validset$Var205_sJzTlal, validset$Var212_NhsEn4L, validset$Var57, validset$Var218_cJvF, validset$Var6, validset$churn)
+names(samplevalid) <- c("Var113", "Var81", "Var73", "Var28", "Var7_0", "Var205_sJzTlal", "Var212_NhsEn4L", "Var57", "Var218_cJvF", "Var6", "churn")
+MAS2 <- glm(churn ~ ., data = sampletrain, family = "binomial")
+summary(MAS2)
+glm.probs = predict(MAS2, newdata = samplevalid, type ="response")
+glm.pred = rep(0, dim(samplevalid)[1])
+glm.pred[glm.probs > 0.275] = 1
+table(glm.pred, samplevalid$churn )
+mean(glm.pred == samplevalid$churn )
+library(ROSE)
+par(mfrow = c(1, 1), xpd = NA)
+roc.curve(glm.pred, samplevalid$churn)
+# The Area Under Curve is improved to 0.713
+
+# Naive Bayes model
+NB_sample <- naiveBayes(churn.1 ~ Var7_0 + Var205_sJzTlal + Var212_NhsEn4L + Var218_cJvF + Var210_uKAI + Var210_g5HH + Var218_UYBR, data = TrainBinary)
+summary(NB_sample)
+print(NB_sample)
+probNB <- predict(NB_sample, newdata= ValidBinary, type="raw")
+head(probNB)
+NB.pred=rep(0, dim(ValidBinary)[1])
+NB.pred[probNB[, 1] > 0.5] = 1
+table(NB.pred, ValidBinary$churn )
+mean(NB.pred == ValidBinary$churn )
+roc.curve(NB.pred, ValidBinary$churn)
+# The Area Under Curve is improved from 0.525 to 0.544
+```
+
+## Conclusion
+### 1. We got astonishing improvement of AUC from 0.5 to 0.713 in Logistic regression.
+### 2. The KDD cup 2009 dataset consists of different types of (numerical, integer, factor) variables and consists with huge amount of null values. 
+### 3. We were able to clean the data and did preprocessing steps to convert the entire dataset in to clean numerical and binary variables.
+### 4. After data cleaning steps, we developed a Logistics regression model for randomly selected variables and then improved the model by selecting most important variables in the dataset (according to Gini index). 
+### 5. Then we developed  Naive bayes Model for numerical variables and improved the model. We were able to improve the Area under curve from 0.525 to 0.544 for test data.
