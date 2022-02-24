@@ -1,0 +1,183 @@
+---
+title: "KDD_Cup_2009"
+author: Maduka Balasooriya, Samuel Brinson, SeungJin Wang, Ali Kamali Mohammadzadeh,Matt Seraj
+  
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Step 1: Read CSV file and Combine churn. Data check
+```{r}
+raw <- read.csv("orange_small_train.data", sep="\t", header = T, na.strings = "")
+churn <- read.table("churn_label.txt", header = F)
+raw$churn <- ifelse(churn$V1 == 1, 1, 0)
+dim(raw)
+workdf <- raw
+n <- nrow(workdf)
+na_rate <- apply(workdf, 2, function(x) {sum(is.na(x))/n})
+sort(na_rate)
+hist(na_rate, breaks = 20)
+data_type <- sapply(workdf, class)
+# We realized that there were a large amount of "na rate" less the 0.2, so we tried to divied into some groups. 
+```
+
+## Step 2: Data Cleasing 
+### Create data frame with null rate and type of VAR
+### Null rate is divided into three groups: Low, Medium and High
+```{r}
+na_by_type <- data.frame(na_rate, data_type)
+#head(na_by_type)
+boxplot(na_rate ~ data_type, data = na_by_type)
+table(na_by_type$data_type)
+na_by_type$na_rate_group <- ifelse(na_by_type$na_rate > 0.8, 'high', ifelse(na_by_type$na_rate < 0.2, 'low', 'med'))
+table(na_by_type[, c('data_type','na_rate_group')])
+
+low_na_factor_vars <- rownames(na_by_type[which(na_by_type$data_type == 'factor' & na_by_type$na_rate_group == 'low'),])
+#low_na_factor_vars
+nlevels(workdf[, "Var192"]) #factor var which has low na rate
+LF_levels <- sapply(workdf[, low_na_factor_vars], nlevels)
+hist(LF_levels) # find how many factor levels
+
+factors_vars_with_too_many_levels <- names(LF_levels[which(LF_levels > 100)])
+hist(LF_levels[which(LF_levels <= 100)])
+
+low_na_numeric_vars <- rownames(na_by_type[which(na_by_type$data_type == 'numeric' & na_by_type$na_rate_group == 'low'),])
+#low_na_numeric_vars 
+
+low_na_integer_vars <- rownames(na_by_type[which(na_by_type$data_type == 'integer' & na_by_type$na_rate_group == 'low'),])
+
+#pdf("hist_numeric_vars.pdf")
+#for (var_name in c(low_na_numeric_vars, low_na_integer_vars)){
+  #hist(workdf[,var_name], xlab = var_name, main="Histogram of sample data")
+#}
+#dev.off()
+#length(unique(workdf[,"Var143"]))
+
+a <- sapply(workdf[, low_na_integer_vars], function(x){length(unique(x))})
+
+# Change integer variables with fewer than 10 unique values to factor variables
+integer_to_factor_vars <- names(a[which(a <= 10)])
+workdf[, integer_to_factor_vars] <- data.frame(apply(workdf[, integer_to_factor_vars], 2, as.factor))
+sapply(workdf[, low_na_integer_vars], class)
+
+# Change integer variables with more than 10 unique values to numeric variables
+integer_to_numeric_vars <- names(a[which(a>10)])
+workdf[,integer_to_numeric_vars] <- data.frame(apply(workdf[, integer_to_numeric_vars], 2, as.numeric))
+sapply(workdf[, low_na_integer_vars], class)
+
+# All low NA numeric variables now:
+all_low_na_numeric_vars <- c(low_na_numeric_vars, integer_to_numeric_vars)
+
+selected_factor_vars <- setdiff(low_na_factor_vars, factors_vars_with_too_many_levels)
+selected_factor_vars <- c(selected_factor_vars, integer_to_factor_vars)#low na and low levels
+length(selected_factor_vars)
+
+sel_factor_levels <- sapply(workdf[,selected_factor_vars], nlevels)
+
+#pdf("level_freq_factor_vars.pdf")
+#for (var_name in selected_factor_vars){
+  #plot(table(workdf[,var_name]), ylab = "Count in sample data", xlab = paste("Levels for", var_name))
+#}
+#dev.off()
+
+# ToDo: combine or discard low-frequency levels in categorical variables
+# try for one case
+var_name <- "Var203"
+
+aname <- names(a[which(a > 0.01)])
+var_names <- c()
+level_names <- list()
+var_names[1] <- var_name
+level_names[[1]] <- aname
+length(level_names[[1]])
+
+# Do it again in batch: store variable name in var_names, store level names in level_names
+var_names <- c()
+level_names <- list()
+i = 1
+for(var_name in selected_factor_vars){
+  a <- prop.table(table(workdf[,var_name]))
+  aname <- names(a[which(a > 0.01)])
+  var_names[i] <- var_name
+  level_names[[i]] <- aname
+  i <- i + 1
+}
+
+# Create indicator variables: 1 if var = level, 0 otherwise
+workdf_b <- as.data.frame(workdf[, 'churn'])
+colnames(workdf_b) <- c("churn")
+
+for(i in 1:length(var_names)){
+  this_var_level_names <- level_names[[i]]
+  for(j in 1:length(this_var_level_names)){
+    this_level_name <- this_var_level_names[j]
+    workdf_b[, paste0(var_names[i], "_", this_level_name)] <- ifelse(workdf[, var_names[i]] == this_level_name, 1, 0)
+  }  
+}
+
+# The same process will be applied to test data before scoring, so var_names and level_names should be saved for future use
+# Impute NA and cap outlier values in numeric variables
+# all_low_na_numeric_vars
+
+#pdf("hist_all_low_na_numeric_vars.pdf")
+#for (var_name in all_low_na_numeric_vars){
+  #hist(workdf[,var_name], xlab = var_name, main="Histogram of sample data")
+#}
+#dev.off()
+
+sapply(workdf[, all_low_na_numeric_vars], min)
+numeric_vars_to_fill_0 <- setdiff(all_low_na_numeric_vars, c("Var57", "Var113", "Var73"))
+workdf_n <- workdf[,numeric_vars_to_fill_0]
+#dim(workdf_n)
+#head(workdf_n)
+workdf_n[is.na(workdf_n)] <- 0
+
+# Add back the non-NA columns
+workdf_n = cbind(workdf_n, workdf[, c("Var57", "Var113", "Var73")])
+sapply(workdf_n, min)
+
+#pdf("hist_all_low_na_numeric_vars_after_impute.pdf")
+#for (var_name in colnames(workdf_n)){
+  #hist(workdf_n[,var_name], xlab = var_name, main="Histogram of sample data")
+#}
+#dev.off()
+
+# Cap outlier values
+# try on one variable
+qtile <- quantile(workdf_n[, 'Var22'], c(0.01, 0.99))
+
+workdf_nc <- workdf_n
+#head(workdf_nc)
+qtile <- apply(workdf_n, 2, function(x){quantile(x, c(0.01, 0.99))})
+
+# Todo: cap outlier values. For each column in workdf_nc, if value is less than the 1% quartile, set it to 1% quartile value;
+# if value is greater than the 99% quartile, set it to 99% quartile value.
+LB <- qtile[1,]
+UB <- qtile[2,]
+
+#(workdf_nc[,"Var28"]<LB) 
+
+fun <- function(x){quantile<-quantile(x, c(0.01, 0.99))
+x[x< quantile[1]] <- quantile[1]
+x[x> quantile[2]] <- quantile[2]
+x}
+
+workdf_numeric <- apply(workdf_nc, 2, fun)
+#head(workdf_numeric)
+#summary(workdf_numeric)
+final_data <- data.frame(workdf_numeric, workdf_b)
+#head(final_data)
+dim(final_data)
+
+final_data[is.na(final_data)] <- 0
+#final_data
+write.csv(final_data, file = "FinalcleanData2.csv")
+
+# There were some outliers in numeric variable
+# in the histogram of lF_levels, we could see the most high frequencey in 0~20.
+```

@@ -1,0 +1,24 @@
+
+## Step 3: Final Data Set and test model(Logisitc) by randomly selected variables
+### Split into "Training Set" and "Validation Data"
+### Run Logistic Regression Model for randomly selected variables after data cleaning
+```{r}
+set.seed(2018)
+ind<-sample(2, nrow(final_data), replace=TRUE, prob =c(0.8, 0.2))
+trainset <- final_data[ind==1,]
+validset <- final_data[ind==2,]
+dim(trainset)
+dim(validset)
+#head(trainset)
+samp_col_idxs  <- sample(ncol(trainset), 10)
+samp_col_names <- colnames(trainset) [samp_col_idxs]
+samp_col_names
+
+MAS <- glm(churn ~ Var44_0 + Var204_X8zP + Var204_MBhA + Var204_xQ2A + Var35 + Var204_LqKm + Var206_lVqb + Var226_wX53 + Var221_zCkv + Var134 + Var193_2Knk1KF, data = trainset, family = "binomial")
+summary(MAS)
+glm.probs <- predict(MAS, newdata = validset, type ="response")
+df <- data.frame(score = glm.probs, true.class = validset[, 'churn'])
+library(pROC)
+#library(rpart)
+auc(df$score, df$true.class)
+```

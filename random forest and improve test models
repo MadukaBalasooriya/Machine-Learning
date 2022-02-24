@@ -1,0 +1,63 @@
+## Step 5: Improving test Models
+### Finding important variables by Random Forest
+### Developing a Logistic model by the most important 10 variables
+### Developing a Naive Bayes model by the most important 7 binary variables
+```{r}
+# applying Random Forest
+library('Metrics')
+library('randomForest')
+library('ggplot2')
+library('ggthemes')
+library('dplyr')
+model_rf <- randomForest(churn ~ ., data = trainset)
+probs <- predict(model_rf, validset)
+pred = rep(0, dim(validset)[1])
+pred[probs > 0.5] = 1
+table(pred, validset$churn )
+x <- importance(model_rf, type=2)
+as.data.frame(x)
+dim(x)
+y <- x[order(x),decreasing=TRUE]
+y
+
+# Because we needed to improve those models, after running Random Forest, identified the best variables which described the churn
+# So, we decided 10 most important variables according to Gini index
+# They were Var7_0, Var113, Var205_sJzTlal, Var73, Var212_NhsEn4L, Var74, Var81, Var218_cJvF, Var57, Var28, Var6
+
+# Logistic model
+sampletrain <- data.frame(trainset$Var113, trainset$Var81, trainset$Var73, trainset$Var28, trainset$Var7_0, trainset$Var205_sJzTlal, trainset$Var212_NhsEn4L, trainset$Var57, trainset$Var218_cJvF, trainset$Var6, trainset$churn)
+names(sampletrain) <- c("Var113","Var81","Var73","Var28", "Var7_0","Var205_sJzTlal", "Var212_NhsEn4L","Var57","Var218_cJvF","Var6", "churn")
+samplevalid<-data.frame(validset$Var113, validset$Var81, validset$Var73, validset$Var28, validset$Var7_0, validset$Var205_sJzTlal, validset$Var212_NhsEn4L, validset$Var57, validset$Var218_cJvF, validset$Var6, validset$churn)
+names(samplevalid) <- c("Var113", "Var81", "Var73", "Var28", "Var7_0", "Var205_sJzTlal", "Var212_NhsEn4L", "Var57", "Var218_cJvF", "Var6", "churn")
+MAS2 <- glm(churn ~ ., data = sampletrain, family = "binomial")
+summary(MAS2)
+glm.probs = predict(MAS2, newdata = samplevalid, type ="response")
+glm.pred = rep(0, dim(samplevalid)[1])
+glm.pred[glm.probs > 0.275] = 1
+table(glm.pred, samplevalid$churn )
+mean(glm.pred == samplevalid$churn )
+library(ROSE)
+par(mfrow = c(1, 1), xpd = NA)
+roc.curve(glm.pred, samplevalid$churn)
+# The Area Under Curve is improved to 0.713
+
+# Naive Bayes model
+NB_sample <- naiveBayes(churn.1 ~ Var7_0 + Var205_sJzTlal + Var212_NhsEn4L + Var218_cJvF + Var210_uKAI + Var210_g5HH + Var218_UYBR, data = TrainBinary)
+summary(NB_sample)
+print(NB_sample)
+probNB <- predict(NB_sample, newdata= ValidBinary, type="raw")
+head(probNB)
+NB.pred=rep(0, dim(ValidBinary)[1])
+NB.pred[probNB[, 1] > 0.5] = 1
+table(NB.pred, ValidBinary$churn )
+mean(NB.pred == ValidBinary$churn )
+roc.curve(NB.pred, ValidBinary$churn)
+# The Area Under Curve is improved from 0.525 to 0.544
+```
+
+## Conclusion
+### 1. We got astonishing improvement of AUC from 0.5 to 0.713 in Logistic regression.
+### 2. The KDD cup 2009 dataset consists of different types of (numerical, integer, factor) variables and consists with huge amount of null values. 
+### 3. We were able to clean the data and did preprocessing steps to convert the entire dataset in to clean numerical and binary variables.
+### 4. After data cleaning steps, we developed a Logistics regression model for randomly selected variables and then improved the model by selecting most important variables in the dataset (according to Gini index). 
+### 5. Then we developed  Naive bayes Model for numerical variables and improved the model. We were able to improve the Area under curve from 0.525 to 0.544 for test data.

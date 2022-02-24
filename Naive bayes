@@ -1,0 +1,27 @@
+## Step 4: Test Models
+### Navie Bayses model
+```{r}
+# split train and Validate datasets in to numeric and binary with churn column included
+TrainBinary <- trainset[, (dim(workdf_numeric)[2]+1):length(trainset)]
+dim(TrainBinary)
+TrainNumeric <- trainset[, 1:(dim(workdf_numeric)[2]+1)]#include churn
+dim(TrainNumeric)
+ValidBinary <- validset[, (dim(workdf_numeric)[2]+1):length(validset)]
+dim(ValidBinary)
+ValidNumeric <- validset[, 1:(dim(workdf_numeric)[2]+1)]#include churn
+dim(ValidNumeric)
+
+## Develop a Naive Bayes model for all the binary variables in the model
+library(e1071)
+library(class)
+library(ROSE)
+NB_allvar <- naiveBayes(churn.1 ~ ., data = TrainBinary)
+summary(NB_allvar)
+print(NB_allvar)
+probNB <- predict(NB_allvar, newdata = ValidBinary, type = "raw")
+head(probNB)
+NB.pred=rep(0, dim(ValidBinary)[1])
+NB.pred[probNB[,1] > 0.5] = 1
+table(NB.pred, ValidBinary$churn )
+mean(NB.pred == ValidBinary$churn )
+roc.curve(NB.pred, ValidBinary$churn)

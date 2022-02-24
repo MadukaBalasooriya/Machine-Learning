@@ -1,0 +1,8 @@
+# Lets make a KNN model for numerical variables
+set.seed(2018)
+library(class)
+knn.pred = knn(TrainNumeric,ValidNumeric, TrainNumeric$churn, k=1)
+table(knn.pred, ValidNumeric$churn)
+mean(knn.pred == ValidNumeric$churn )
+roc.curve(knn.pred, ValidNumeric$churn)
+```
